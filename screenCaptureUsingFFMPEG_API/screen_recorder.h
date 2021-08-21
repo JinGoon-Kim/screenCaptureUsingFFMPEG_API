@@ -51,17 +51,19 @@ private:
 	ThreadSafeFlag writer_flag_;	// EncodeVideo, Writer	쓰레드에서 접근
 	
 	// decoder
-	AVFormatContext *input_video_format_context_ = NULL;
-	AVCodecContext *decoder_video_codec_context_ = NULL;
+	AVFormatContext *video_input_format_context_ = NULL;
+	AVCodecContext *video_decoder_codec_context_ = NULL;
 
-	AVFormatContext *input_audio_format_context_ = NULL;
-	AVCodecContext *decoder_audio_codec_context_ = NULL;
+	AVFormatContext *audio_input_format_context_ = NULL;
+	AVCodecContext *audio_decoder_codec_context_ = NULL;
 
 	// scaler
 	SwsContext* sws_context_;
 
 	// encoder
-	AVCodecContext* encoder_codec_context_ = NULL;
+	AVCodecContext* video_encoder_codec_context_ = NULL;
+
+	AVCodecContext* audio_encoder_codec_context_ = NULL;
 
 	std::string output_filename_;
 
