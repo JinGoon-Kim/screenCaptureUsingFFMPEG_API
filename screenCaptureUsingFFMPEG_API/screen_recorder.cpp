@@ -208,11 +208,84 @@ int ScreenRecorder::init(AVCodecContext* encoder_codec_context) {
 	}
 	/*------------------------*/
 
-	// scaler init
+	// video scaler init
 	sws_context_ = sws_getContext(
 		video_decoder_codec_context_->width, video_decoder_codec_context_->height, video_decoder_codec_context_->pix_fmt,
 		video_encoder_codec_context_->width, video_encoder_codec_context_->height, video_encoder_codec_context_->pix_fmt,
 		SWS_BICUBIC, NULL, NULL, NULL);
+
+	// audio scaler init
+	// create resampler context
+	swr_context_ = swr_alloc();
+	if (!swr_context_) {
+		av_log(NULL, AV_LOG_ERROR, "Could not allocate resampler context\n");
+	}
+	// set options
+	av_opt_set_int(swr_context_, "in_channel_count", audio_encoder_codec_context_->channels, 0);
+	av_opt_set_int(swr_context_, "in_sample_rate", audio_encoder_codec_context_->sample_rate, 0);
+	av_opt_set_sample_fmt(swr_context_, "in_sample_fmt", AV_SAMPLE_FMT_S16, 0);
+
+	av_opt_set_int(swr_context_, "out_channel_count", audio_encoder_codec_context_->channels, 0);
+	av_opt_set_int(swr_context_, "out_sample_rate", audio_encoder_codec_context_->sample_rate, 0);
+	av_opt_set_sample_fmt(swr_context_, "out_sample_fmt", audio_encoder_codec_context_->sample_fmt, 0);
+
+	if ((ret = swr_init(swr_context_)) < 0) {
+		av_log(NULL, AV_LOG_ERROR, "Failed to initialize the resampling context\n");
+	}
+
+	// writer init
+	avformat_alloc_output_context2(&output_format_context_, NULL, NULL, output_filename_.c_str());
+	if (!output_format_context_)
+	{
+		std::cout << "\nerror in allocating av format output context";
+		return -1;
+	}
+	out_video_stream_ = avformat_new_stream(output_format_context_, NULL);
+	out_video_stream_->id = output_format_context_->nb_streams - 1;
+	out_video_stream_->time_base = video_encoder_codec_context_->time_base;
+	ret = avcodec_parameters_from_context(out_video_stream_->codecpar, video_encoder_codec_context_);
+	if (ret < 0) {
+		av_log(NULL, AV_LOG_ERROR, "Failed to copy encoder parameters to output stream\n");
+		return ret;
+	}
+
+	out_audio_stream_ = avformat_new_stream(output_format_context_, NULL);
+	out_audio_stream_->time_base = audio_encoder_codec_context_->time_base;
+	out_audio_stream_->id = output_format_context_->nb_streams - 1;
+	ret = avcodec_parameters_from_context(out_audio_stream_->codecpar, audio_encoder_codec_context_);
+	if (ret < 0) {
+		av_log(NULL, AV_LOG_ERROR, "Failed to copy encoder parameters to output stream\n");
+		return ret;
+	}
+
+	if (output_format_context_->oformat->flags & AVFMT_GLOBALHEADER)
+	{
+		output_format_context_->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+	}
+
+	// create empty video file
+	if (!(output_format_context_->flags & AVFMT_NOFILE))
+	{
+		if (avio_open2(&output_format_context_->pb, output_filename_.c_str(), AVIO_FLAG_WRITE, NULL, NULL) < 0)
+		{
+			av_log(NULL, AV_LOG_ERROR, "error in creating the video file\n");
+		}
+	}
+	
+	if (!output_format_context_->nb_streams)
+	{
+		av_log(NULL, AV_LOG_ERROR, "output file dose not contain any stream\n");
+	}
+
+	// imp: mp4 container or some advanced container file required header information
+	ret = avformat_write_header(output_format_context_, &options);
+	if (ret < 0)
+	{
+		av_log(NULL, AV_LOG_ERROR, "error in writing the header context\n");
+	}
+
+	av_dict_free(&options);
+
 
 	return 0;
 }

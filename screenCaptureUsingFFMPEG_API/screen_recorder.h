@@ -59,6 +59,7 @@ private:
 
 	// scaler
 	SwsContext* sws_context_;
+	SwrContext* swr_context_;
 
 	// encoder
 	AVCodecContext* video_encoder_codec_context_ = NULL;
@@ -66,6 +67,11 @@ private:
 	AVCodecContext* audio_encoder_codec_context_ = NULL;
 
 	std::string output_filename_;
+
+	// writer
+	AVFormatContext* output_format_context_ = NULL;
+	AVStream* out_video_stream_;
+	AVStream* out_audio_stream_;
 
 	// data queue
 	ThreadSafeQueue<AVFrame *> decoded_frame_queue, scaled_frame_queue;
