@@ -15,17 +15,18 @@ extern "C" {
 #include <mutex>
 #include <thread>
 #include <list>
+#include <assert.h>
 
 template<typename T>
 class ThreadSafeQueue {
 public:
 	ThreadSafeQueue() {};
-	void push(T pFrame) {
+	void Push(T pFrame) {
 		mutex_.lock();
 		list_.emplace_back(pFrame);
 		mutex_.unlock();
 	}
-	T pop() {
+	T Pop() {
 		T ret = NULL;
 		if (!list_.empty()) {
 			mutex_.lock();
@@ -35,7 +36,7 @@ public:
 		}
 		return ret;
 	}
-	int size() {
+	int Size() {
 		int ret = -1;
 		mutex_.lock();
 		ret = list_.size();
@@ -44,6 +45,25 @@ public:
 	}
 private:
 	std::list<T> list_;
+	std::mutex mutex_;
+};
+
+class ThreadSafeFlag {
+public:
+	void Set(bool value) {
+		mutex_.lock();
+		flag = value;
+		mutex_.unlock();
+	}
+	bool Get() {
+		bool ret = false;
+		mutex_.lock();
+		ret = flag;
+		mutex_.unlock();
+		return ret;
+	}
+private:
+	bool flag = true;
 	std::mutex mutex_;
 };
 
