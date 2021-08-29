@@ -67,7 +67,7 @@ int ScreenRecorder::InitWriter(){
 		std::cout << "\nerror in writing the header context";
 		exit(1);
 	}
-
+	return 0;
 }
 
 int ScreenRecorder::InitVideo(AVCodecContext* video_encoder_codec_context) {
