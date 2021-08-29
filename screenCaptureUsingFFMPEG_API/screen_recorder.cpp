@@ -311,9 +311,9 @@ ScreenRecorder::~ScreenRecorder() {
 
 void ScreenRecorder::Start() {
 	Stop();
-	decoder_flag_.set(true);
-	scaler_flag_.set(true);
-	encoder_flag_.set(true); 
+	vedio_decoder_flag_.set(true);
+	vedio_scaler_flag_.set(true);
+	vedio_encoder_flag_.set(true); 
 	writer_flag_.set(true);
 
 	// List threads_에 인자를 하나 넣음, 그 인자가 Thread (DecodeVideo, ScaleVideo, EncodeVideo, Writer)
@@ -329,7 +329,7 @@ void ScreenRecorder::Start() {
 }
 
 void ScreenRecorder::Stop() {
-	decoder_flag_.set(false);
+	vedio_decoder_flag_.set(false);
 	for (auto i = threads_.begin(); i != threads_.end(); ++i) {
 		if ((*i)->joinable()) {
 			(*i)->join();
@@ -348,7 +348,7 @@ void ScreenRecorder::DecodeVideo() {
 		std::cout << "Could not allocate video packet\n";
 		exit(1);
 	}
-	while (decoder_flag_.get() && av_read_frame(video_input_format_context_, input_packet) == 0) {
+	while (vedio_decoder_flag_.get() && av_read_frame(video_input_format_context_, input_packet) == 0) {
 		int ret;
 		ret = avcodec_send_packet(video_decoder_codec_context_, input_packet);
 		if (ret < 0) {
@@ -395,7 +395,7 @@ void ScreenRecorder::DecodeVideo() {
 		decoded_frame_queue.push(decoded_frame);
 	}
 
-	scaler_flag_.set(false);
+	vedio_scaler_flag_.set(false);
 	av_packet_free(&input_packet);
 	return;
 }
@@ -405,7 +405,7 @@ void ScreenRecorder::ScaleVideo() {
 	while (1) {
 		if (!(decoded_frame = decoded_frame_queue.pop())) {
 			Sleep(100);
-			if (scaler_flag_.get() == false)
+			if (vedio_scaler_flag_.get() == false)
 				break;
 			continue;
 		}
@@ -424,7 +424,7 @@ void ScreenRecorder::ScaleVideo() {
 		av_frame_free(&decoded_frame);
 
 	}
-	encoder_flag_.set(false);
+	vedio_encoder_flag_.set(false);
 }
 void ScreenRecorder::EncodeVideo() {
 	AVFrame* scaled_frame = av_frame_alloc();
@@ -433,7 +433,7 @@ void ScreenRecorder::EncodeVideo() {
 	while (1) {
 		if (!(scaled_frame = scaled_frame_queue.pop())) {
 			Sleep(100);
-			if (encoder_flag_.get() == false)
+			if (vedio_encoder_flag_.get() == false)
 				break;
 			continue;
 		}
@@ -489,17 +489,197 @@ void ScreenRecorder::EncodeVideo() {
 }
 void ScreenRecorder::DecodeAudio()
 {
-	
+	AVPacket* input_packet = av_packet_alloc();
+	if (!input_packet) {
+		std::cout << "Could not allocate audio packet\n";
+		exit(1);
+	}
 
-	
+	clock_t start;
+	start = clock();
+
+	int frame_number = 0;
+
+	while (audio_decoder_flag_.get() && av_read_frame(audio_input_format_context_, input_packet) == 0) {
+		int ret;
+		ret = avcodec_send_packet(audio_decoder_codec_context_, input_packet);
+		if (ret < 0) {
+			std::cout << "Error sending a packet for decoding\n";
+			exit(1);
+		}
+		while (ret >= 0) {
+			AVFrame* decoded_frame = av_frame_alloc();
+			if (!decoded_frame) {
+				std::cout << "Could not allocate audio pFrame\n";
+				exit(1);
+			}
+			ret = avcodec_receive_frame(audio_decoder_codec_context_, decoded_frame);
+			if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+				break;
+			else if (ret < 0) {
+				std::cout << "Error during decoding\n";
+				exit(1);
+			}
+			++frame_number;
+			double du = ((double)(clock() - start) / 1000.0);
+			printf("Time: %5.2lf\tFPS: %5.2lf    \r", du, (double)frame_number / du);
+			audio_decoded_frame_queue.push(decoded_frame);
+		}
+	}
+
+	/* flush the decoder */
+	int ret;
+	ret = avcodec_send_packet(audio_decoder_codec_context_, NULL);
+	if (ret < 0) {
+		std::cout << "Error sending a packet for decoding\n";
+		exit(1);
+	}
+	while (ret >= 0) {
+		AVFrame* decoded_frame = av_frame_alloc();
+		if (!decoded_frame) {
+			std::cout << "Could not allocate audio pFrame\n";
+			exit(1);
+		}
+		ret = avcodec_receive_frame(audio_decoder_codec_context_, decoded_frame);
+		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+			break;
+		else if (ret < 0) {
+			std::cout << "Error during decoding\n";
+			exit(1);
+		}
+		audio_decoded_frame_queue.push(decoded_frame);
+	}
+
+	audio_scaler_flag_.set(false);
+	av_packet_free(&input_packet);
+	return;
 }
 void ScreenRecorder::ScaleAudio()
 {
+	// Get Original Frame
+	AVFrame* decoded_frame = NULL;
+	while (1) {
+		if (!(decoded_frame = audio_decoded_frame_queue.pop())) {
+			Sleep(100);
+			if (audio_scaler_flag_.get() == false)
+				break;
+			continue;
+		}
+		// Alloc AVFrame
+		AVFrame* scaled_frame = av_frame_alloc();
 
+		scaled_frame->format = audio_encoder_codec_context_->sample_fmt;
+		scaled_frame->channel_layout = audio_encoder_codec_context_->channel_layout;
+		scaled_frame->sample_rate = audio_encoder_codec_context_->sample_rate;
+		scaled_frame->nb_samples = audio_encoder_codec_context_->frame_size;
+		if (scaled_frame->nb_samples) {
+			int ret = av_frame_get_buffer(scaled_frame, 0);
+			if (ret < 0) {
+				fprintf(stderr, "Error allocating an audio buffer\n");
+				exit(1);
+			}
+		}
+
+		/* convert samples from native format to destination codec format, using the resampler */
+			/* compute destination number of samples */
+		int dst_nb_samples = av_rescale_rnd(swr_get_delay(swr_context_, audio_encoder_codec_context_->sample_rate) + decoded_frame->nb_samples,
+			audio_encoder_codec_context_->sample_rate, audio_encoder_codec_context_->sample_rate, AV_ROUND_UP);
+		std::cout << dst_nb_samples << " " << decoded_frame->nb_samples << "\n";
+		//av_assert0(dst_nb_samples == decoded_frame->nb_samples);
+		/* when we pass a frame to the encoder, it may keep a reference to it
+		 * internally;
+		 * make sure we do not overwrite it here
+		 */
+		int ret = av_frame_make_writable(scaled_frame);
+		if (ret < 0)
+			exit(1);
+
+		// Convert Origianl Frame to Scaled Frame
+		ret = swr_convert(swr_context_,
+			scaled_frame->data, scaled_frame->nb_samples,
+			(const uint8_t**)decoded_frame->data, decoded_frame->nb_samples);
+		if (ret < 0) {
+			fprintf(stderr, "Error while converting\n");
+			exit(1);
+		}
+
+		// Push Scaled Frame to Queue
+		audio_scaled_frame_queue.push(scaled_frame);
+
+		av_frame_free(&decoded_frame);
+	}
+	audio_encoder_flag_.set(false);
 }
 void ScreenRecorder::EncodeAudio()
 {
+	AVFrame* scaled_frame = av_frame_alloc();
 
+	int ret;
+	while (1) {
+		if (!(scaled_frame = audio_scaled_frame_queue.pop())) {
+			Sleep(100);
+			if (audio_encoder_flag_.get() == false)
+				break;
+			continue;
+		}
+		scaled_frame->format = audio_encoder_codec_context_->pix_fmt;
+		scaled_frame->width = audio_encoder_codec_context_->width;
+		scaled_frame->height = audio_encoder_codec_context_->height;
+
+		ret = avcodec_send_frame(audio_encoder_codec_context_, scaled_frame);
+		if (ret < 0) {
+			std::cout << "Error sending a frame for encoding\n";
+			exit(1);
+		}
+		while (ret >= 0) {
+			AVPacket* output_packet = av_packet_alloc();
+			if (!output_packet)
+				exit(1);
+			ret = avcodec_receive_packet(audio_encoder_codec_context_, output_packet);
+			if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+				break;
+			else if (ret < 0) {
+				std::cout << "Error during encoding\n";
+				exit(1);
+			}
+			if (output_packet->pts != AV_NOPTS_VALUE)
+				output_packet->pts = av_rescale_q(output_packet->pts, audio_encoder_codec_context_->time_base, out_audio_stream_->time_base);
+			if (output_packet->dts != AV_NOPTS_VALUE)
+				output_packet->dts = av_rescale_q(output_packet->dts, audio_encoder_codec_context_->time_base, out_audio_stream_->time_base);
+			output_packet->stream_index = out_audio_stream_->index;
+			output_packet_queue.push(output_packet);
+		}
+		av_frame_free(&scaled_frame);
+	}
+	/* flush the encoder */
+	ret = avcodec_send_frame(audio_encoder_codec_context_, NULL);
+	if (ret < 0) {
+		std::cout << "Error sending a frame for encoding\n";
+		exit(1);
+	}
+	while (ret >= 0) {
+		AVPacket* output_packet = av_packet_alloc();
+		if (!output_packet)
+			exit(1);
+		ret = avcodec_receive_packet(audio_encoder_codec_context_, output_packet);
+		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+			break;
+		else if (ret < 0) {
+			std::cout << "Error during encoding\n";
+			exit(1);
+		}
+
+		if (output_packet->pts != AV_NOPTS_VALUE)
+			output_packet->pts = av_rescale_q(output_packet->pts, audio_encoder_codec_context_->time_base, out_audio_stream_->time_base);
+		if (output_packet->dts != AV_NOPTS_VALUE)
+			output_packet->dts = av_rescale_q(output_packet->dts, audio_encoder_codec_context_->time_base, out_audio_stream_->time_base);
+		output_packet->stream_index = out_audio_stream_->index;
+		output_packet_queue.push(output_packet);
+	}
+
+	writer_flag_.set(false);
+
+	return;
 }
 void ScreenRecorder::Writer() {
 	AVPacket* output_packet;

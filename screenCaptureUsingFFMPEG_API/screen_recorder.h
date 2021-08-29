@@ -45,9 +45,14 @@ private:
 	
 	std::list<std::shared_ptr<std::thread>> threads_;
 
-	ThreadSafeFlag decoder_flag_;	// main,	DecodeVideo	쓰레드에서 접근
-	ThreadSafeFlag scaler_flag_;	// DecodeVideo, ScaleVideo	쓰레드에서 접근
-	ThreadSafeFlag encoder_flag_;	// ScaleVideo,	EncodeVideo	쓰레드에서 접근
+	ThreadSafeFlag vedio_decoder_flag_;	// main,	DecodeVideo	쓰레드에서 접근
+	ThreadSafeFlag vedio_scaler_flag_;	// DecodeVideo, ScaleVideo	쓰레드에서 접근
+	ThreadSafeFlag vedio_encoder_flag_;	// ScaleVideo,	EncodeVideo	쓰레드에서 접근
+
+	ThreadSafeFlag audio_decoder_flag_;	// main,	Decoder	쓰레드에서 접근
+	ThreadSafeFlag audio_scaler_flag_;	// Decoder, Scaler	쓰레드에서 접근
+	ThreadSafeFlag audio_encoder_flag_;	// Scaler,	Encoder	쓰레드에서 접근
+
 	ThreadSafeFlag writer_flag_;	// EncodeVideo, Writer	쓰레드에서 접근
 	
 	// decoder
@@ -75,6 +80,7 @@ private:
 
 	// data queue
 	ThreadSafeQueue<AVFrame *> decoded_frame_queue, scaled_frame_queue;
+	ThreadSafeQueue<AVFrame* > audio_decoded_frame_queue, audio_scaled_frame_queue;
 	ThreadSafeQueue<AVPacket *> output_packet_queue;
 
 	
